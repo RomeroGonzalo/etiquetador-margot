@@ -129,7 +129,12 @@ def find_barcode_graphic_rect(page: fitz.Page) -> Optional[fitz.Rect]:
 
 
 def parse_label(page: fitz.Page) -> dict:
-    """Extract product name, SKU, barcode code and barcode graphic bounds."""
+    """Extract product name, color, talle, barcode code and barcode graphic bounds.
+
+    Margot PDF format — first text block:
+        line 0: product name
+        line 1: "C: NEGRO T: M"   (color and talle)
+    """
     h, w = page.rect.height, page.rect.width
 
     blocks = sorted(
@@ -139,7 +144,7 @@ def parse_label(page: fitz.Page) -> dict:
     )
 
     if not blocks:
-        return {"name": "?", "sku": "?", "code": "?",
+        return {"name": "?", "sku": "?", "code": "?", "color": "", "talle": "",
                 "barcode_rect": fitz.Rect(0, h*.3, w, h*.7)}
 
     bc_block = next((b for b in reversed(blocks) if b["yc"] < h * 0.85), blocks[-1])
@@ -147,15 +152,21 @@ def parse_label(page: fitz.Page) -> dict:
 
     first = blocks[0]
     lines = [ln.strip() for ln in first["text"].split("\n") if ln.strip()]
+
+    name  = lines[0] if lines else ""
+    sku   = re.sub(r"!+$", "", bc_code).strip()
+    color = ""
+    talle = ""
+
     if len(lines) >= 2:
-        sku  = lines[0]
-        name = " ".join(lines[1:])
-    else:
-        name = lines[0] if lines else ""
-        sku  = re.sub(r"!+$", "", bc_code).strip()
+        ct = re.match(r"C:\s*(.+?)\s+T:\s*(.+)", lines[1])
+        if ct:
+            color = ct.group(1).strip()
+            talle = ct.group(2).strip()
 
     bc_rect = find_barcode_graphic_rect(page) or fitz.Rect(0, first["y1"]+1, w, bc_block["y0"]-1)
-    return {"name": name, "sku": sku, "code": bc_code, "barcode_rect": bc_rect}
+    return {"name": name, "sku": sku, "code": bc_code, "color": color, "talle": talle,
+            "barcode_rect": bc_rect}
 
 
 def build_page(
@@ -173,6 +184,7 @@ def build_page(
         PRODUCT NAME (full width)
         SKU: CODE    (full width)
         RUBRO: CAT   (full width)
+        Col: NEGRO       Talle: M     ← izq | der, misma línea
         E: $15.000       T: $18.000   ← efectivo izq | tarjeta der, misma línea
         [ ||||||||||||||||||||||||| ]
     """
@@ -182,16 +194,17 @@ def build_page(
     new = out_doc.new_page(width=w, height=h)
     new.draw_rect(fitz.Rect(0, 0, w, h), color=None, fill=(1, 1, 1))
 
-    # ── layout zones — must sum to 1.0 ──────────────────────────────────────
-    # top_margin | name | sku | rubro | precio | barcode | bot_margin
-    #    0.04      0.15   0.11   0.11    0.15     0.40      0.04
+    # ── layout zones ─────────────────────────────────────────────────────────
+    # marg | name | sku | rubro | col+talle | precio | barcode | (bot ~0.05)
+    # 0.04   0.13   0.09   0.09     0.09       0.16     0.35
     marg   = h * 0.04
-    h_name = h * 0.15
-    h_sku  = h * 0.11
-    h_rub  = h * 0.11
-    h_pre  = h * 0.20
+    h_name = h * 0.13
+    h_sku  = h * 0.09
+    h_rub  = h * 0.09
+    h_col  = h * 0.09
+    h_pre  = h * 0.16
     h_bc   = h * 0.35
-    # 0.04 + 0.15 + 0.11 + 0.11 + 0.20 + 0.35 + 0.04 = 1.00 ✓
+    # 0.04+0.13+0.09+0.09+0.09+0.16+0.35 = 0.95  → bot margin ~0.05 ✓
 
     def fs(zone: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, zone * 0.75))
@@ -199,7 +212,6 @@ def build_page(
     left_x = w * 0.04
     max_w  = w - 2 * left_x
 
-    # Baseline positions (82 % through each zone)
     y = marg
     def nb(zh: float) -> float:
         nonlocal y
@@ -210,26 +222,28 @@ def build_page(
     y_name = nb(h_name)
     y_sku  = nb(h_sku)
     y_rub  = nb(h_rub)
+    y_col  = nb(h_col)
     y_pre  = nb(h_pre)
     bc_top = y;  y += h_bc
 
-    # Font sizes
     fs_name = fs(h_name, 6.0, 36.0)
     fs_sku  = fs(h_sku,  5.0, 28.0)
     fs_rub  = fs(h_rub,  5.0, 28.0)
+    fs_col  = fs(h_col,  5.0, 28.0)
     fs_pre  = fs(h_pre,  5.5, 36.0)
 
     display_sku = re.sub(r"!+$", "", info["sku"]).strip()
 
-    # Dos precios en la misma línea: efectivo izq | tarjeta der
     half_w    = max_w / 2 - w * 0.02
-    right_x_p = left_x + half_w + w * 0.04
+    right_x_s = left_x + half_w + w * 0.04   # inicio columna derecha
 
-    insert_left(new,       info["name"],                         y_name, fs_name, "hebo", left_x,    max_w)
-    insert_left_mixed(new, "SKU: ",   display_sku,               y_sku,  fs_sku,         left_x,    max_w)
-    insert_left_mixed(new, "RUBRO: ", rubro.upper(),             y_rub,  fs_rub,         left_x,    max_w)
-    insert_left_mixed(new, "E: ",     f"$ {fmt_precio(precio_ef)}",  y_pre,  fs_pre, left_x,    half_w)
-    insert_left_mixed(new, "T: ",     f"$ {fmt_precio(precio_tar)}", y_pre,  fs_pre, right_x_p, half_w)
+    insert_left(new,       info["name"],                          y_name, fs_name, "hebo", left_x,    max_w)
+    insert_left_mixed(new, "SKU: ",   display_sku,                y_sku,  fs_sku,         left_x,    max_w)
+    insert_left_mixed(new, "RUBRO: ", rubro.upper(),              y_rub,  fs_rub,         left_x,    max_w)
+    insert_left_mixed(new, "Col: ",   info["color"],              y_col,  fs_col,         left_x,    half_w)
+    insert_left_mixed(new, "Talle: ", info["talle"],              y_col,  fs_col,         right_x_s, half_w)
+    insert_left_mixed(new, "E: ",     f"$ {fmt_precio(precio_ef)}",  y_pre, fs_pre,       left_x,    half_w)
+    insert_left_mixed(new, "T: ",     f"$ {fmt_precio(precio_tar)}", y_pre, fs_pre,       right_x_s, half_w)
 
     # Barcode — centered, fills the bottom zone
     src_r = info["barcode_rect"]
@@ -281,6 +295,8 @@ if pdf_file and excel_file:
                     "Pág.":            i + 1,
                     "Código PDF":      info["code"],
                     "Nombre":          info["name"],
+                    "Color":           info["color"],
+                    "Talle":           info["talle"],
                     "SKU":             match["SKU"].strip() if match else "No encontrado",
                     "Rubro":           rubro,
                     "Precio Efectivo": f"$ {precio_ef}"  if match else "—",
