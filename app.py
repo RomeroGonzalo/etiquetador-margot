@@ -220,7 +220,8 @@ def build_page(
     y_name = nb(h_name)
     y_sku  = nb(h_sku)
     y_rub  = nb(h_rub)
-    y_pre  = nb(h_pre)
+    y_pre  = y + h_pre * 0.60   # centrado en la zona entre rubro y barcode
+    y     += h_pre
     bc_top = y;  y += h_bc
 
     fs_name = fs(h_name, 6.0, 36.0)
