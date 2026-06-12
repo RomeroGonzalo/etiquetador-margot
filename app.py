@@ -148,13 +148,13 @@ def parse_label(page: fitz.Page) -> dict:
                 "barcode_rect": fitz.Rect(0, h*.3, w, h*.7)}
 
     bc_block = next((b for b in reversed(blocks) if b["yc"] < h * 0.85), blocks[-1])
-    bc_code  = bc_block["text"]
+    bc_code  = re.sub(r"!.*$", "", bc_block["text"]).strip()   # "1005P01/26!10!M" → "1005P01/26"
 
     first = blocks[0]
     lines = [ln.strip() for ln in first["text"].split("\n") if ln.strip()]
 
     name  = lines[0] if lines else ""
-    sku   = re.sub(r"!+$", "", bc_code).strip()
+    sku   = bc_code
     color = ""
     talle = ""
 
