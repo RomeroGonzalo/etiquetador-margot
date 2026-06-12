@@ -184,7 +184,6 @@ def build_page(
         PRODUCT NAME (full width)
         SKU: CODE    (full width)
         RUBRO: CAT   (full width)
-        Col: NEGRO       Talle: M     ← izq | der, misma línea
         E: $15.000       T: $18.000   ← efectivo izq | tarjeta der, misma línea
         [ ||||||||||||||||||||||||| ]
     """
@@ -195,16 +194,15 @@ def build_page(
     new.draw_rect(fitz.Rect(0, 0, w, h), color=None, fill=(1, 1, 1))
 
     # ── layout zones ─────────────────────────────────────────────────────────
-    # marg | name | sku | rubro | col+talle | precio | barcode | (bot ~0.05)
-    # 0.04   0.13   0.09   0.09     0.09       0.16     0.35
+    # marg | name | sku | rubro | precio | barcode | (bot ~0.05)
+    # 0.04   0.13   0.09   0.09    0.25     0.35
     marg   = h * 0.04
     h_name = h * 0.13
     h_sku  = h * 0.09
     h_rub  = h * 0.09
-    h_col  = h * 0.09
-    h_pre  = h * 0.16
+    h_pre  = h * 0.25
     h_bc   = h * 0.35
-    # 0.04+0.13+0.09+0.09+0.09+0.16+0.35 = 0.95  → bot margin ~0.05 ✓
+    # 0.04+0.13+0.09+0.09+0.25+0.35 = 0.95  → bot margin ~0.05 ✓
 
     def fs(zone: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, zone * 0.75))
@@ -222,26 +220,22 @@ def build_page(
     y_name = nb(h_name)
     y_sku  = nb(h_sku)
     y_rub  = nb(h_rub)
-    y_col  = nb(h_col)
     y_pre  = nb(h_pre)
     bc_top = y;  y += h_bc
 
     fs_name = fs(h_name, 6.0, 36.0)
     fs_sku  = fs(h_sku,  5.0, 28.0)
     fs_rub  = fs(h_rub,  5.0, 28.0)
-    fs_col  = fs(h_col,  5.0, 28.0)
-    fs_pre  = fs(h_pre,  5.5, 36.0)
+    fs_pre  = fs(h_pre,  5.5, 42.0)
 
     display_sku = re.sub(r"!+$", "", info["sku"]).strip()
 
     half_w    = max_w / 2 - w * 0.02
-    right_x_s = left_x + half_w + w * 0.04   # inicio columna derecha
+    right_x_s = left_x + half_w + w * 0.04
 
     insert_left(new,       info["name"],                          y_name, fs_name, "hebo", left_x,    max_w)
     insert_left_mixed(new, "SKU: ",   display_sku,                y_sku,  fs_sku,         left_x,    max_w)
     insert_left_mixed(new, "RUBRO: ", rubro.upper(),              y_rub,  fs_rub,         left_x,    max_w)
-    insert_left_mixed(new, "Col: ",   info["color"],              y_col,  fs_col,         left_x,    half_w)
-    insert_left_mixed(new, "Talle: ", info["talle"],              y_col,  fs_col,         right_x_s, half_w)
     insert_left_mixed(new, "E: ",     f"$ {fmt_precio(precio_ef)}",  y_pre, fs_pre,       left_x,    half_w)
     insert_left_mixed(new, "T: ",     f"$ {fmt_precio(precio_tar)}", y_pre, fs_pre,       right_x_s, half_w)
 
