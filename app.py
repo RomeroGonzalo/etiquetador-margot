@@ -163,16 +163,18 @@ def build_page(
     page_idx: int,
     info: dict,
     rubro: str,
-    precio: str,
+    precio_ef: str,
+    precio_tar: str,
     out_doc: fitz.Document,
 ) -> fitz.Page:
     """
-    New label layout (two-column text, barcode centered at bottom):
+    Layout Margot:
 
-        PRODUCT NAME     $ PRICE  ← name/sku/rubro left col, price right col (big)
-        SKU: CODE
-        RUBRO: CATEGORY
-        [ ||||||||||||||||||||| ] ← barcode centrado, zona inferior (sin cambios)
+        PRODUCT NAME (full width)
+        SKU: CODE    (full width)
+        RUBRO: CAT   (full width)
+        E: $15.000       T: $18.000   ← efectivo izq | tarjeta der, misma línea
+        [ ||||||||||||||||||||||||| ]
     """
     w = src_doc[page_idx].rect.width
     h = src_doc[page_idx].rect.height
@@ -219,10 +221,15 @@ def build_page(
 
     display_sku = re.sub(r"!+$", "", info["sku"]).strip()
 
-    insert_left(new,       info["name"],                    y_name, fs_name, "hebo", left_x, max_w)
-    insert_left_mixed(new, "SKU: ",   display_sku,          y_sku,  fs_sku,         left_x, max_w)
-    insert_left_mixed(new, "RUBRO: ", rubro.upper(),        y_rub,  fs_rub,         left_x, max_w)
-    insert_left(new,       f"$ {fmt_precio(precio)}",       y_pre,  fs_pre,  "hebo", left_x, max_w)
+    # Dos precios en la misma línea: efectivo izq | tarjeta der
+    half_w    = max_w / 2 - w * 0.02
+    right_x_p = left_x + half_w + w * 0.04
+
+    insert_left(new,       info["name"],                         y_name, fs_name, "hebo", left_x,    max_w)
+    insert_left_mixed(new, "SKU: ",   display_sku,               y_sku,  fs_sku,         left_x,    max_w)
+    insert_left_mixed(new, "RUBRO: ", rubro.upper(),             y_rub,  fs_rub,         left_x,    max_w)
+    insert_left_mixed(new, "E: ",     f"$ {fmt_precio(precio_ef)}",  y_pre,  fs_pre, left_x,    half_w)
+    insert_left_mixed(new, "T: ",     f"$ {fmt_precio(precio_tar)}", y_pre,  fs_pre, right_x_p, half_w)
 
     # Barcode — centered, fills the bottom zone
     src_r = info["barcode_rect"]
@@ -248,7 +255,7 @@ if pdf_file and excel_file:
             df = pd.read_excel(excel_file, sheet_name="Carga", dtype=str)
             df.columns = df.columns.str.strip()
 
-            missing = {"SKU", "Rubro", "Precio"} - set(df.columns)
+            missing = {"SKU", "Rubro", "Precio Efectivo", "Precio Tarjeta"} - set(df.columns)
             if missing:
                 st.error(f"Columnas faltantes en el Excel: {', '.join(sorted(missing))}")
                 st.stop()
@@ -265,22 +272,24 @@ if pdf_file and excel_file:
                 key   = normalize(info["code"])
                 match = lookup.get(key)
 
-                rubro  = match["Rubro"].strip()  if match else "—"
-                precio = match["Precio"].strip()  if match else "—"
-                status = "✅" if match else "❌"
+                rubro      = match["Rubro"].strip()           if match else "—"
+                precio_ef  = match["Precio Efectivo"].strip() if match else "—"
+                precio_tar = match["Precio Tarjeta"].strip()  if match else "—"
+                status     = "✅" if match else "❌"
 
                 rows.append({
-                    "Pág.":       i + 1,
-                    "Código PDF": info["code"],
-                    "Nombre":     info["name"],
-                    "SKU":        match["SKU"].strip() if match else "No encontrado",
-                    "Rubro":      rubro,
-                    "Precio":     f"$ {precio}" if match else "—",
-                    "Estado":     status,
+                    "Pág.":            i + 1,
+                    "Código PDF":      info["code"],
+                    "Nombre":          info["name"],
+                    "SKU":             match["SKU"].strip() if match else "No encontrado",
+                    "Rubro":           rubro,
+                    "Precio Efectivo": f"$ {precio_ef}"  if match else "—",
+                    "Precio Tarjeta":  f"$ {precio_tar}" if match else "—",
+                    "Estado":          status,
                 })
 
                 if match:
-                    build_page(src, i, info, rubro, precio, out)
+                    build_page(src, i, info, rubro, precio_ef, precio_tar, out)
                 else:
                     p = out.new_page(width=src[i].rect.width, height=src[i].rect.height)
                     p.show_pdf_page(p.rect, src, i)
